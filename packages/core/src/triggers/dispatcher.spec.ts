@@ -1549,6 +1549,76 @@ Respond to the event.`,
     },
   );
 
+  it.each(["event", "webhook"] as const)(
+    "records a skip with its reason when a job file sets mode: deterministic (%s)",
+    async (source) => {
+      const stored = {
+        id: "resource-deterministic",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/unsupported-mode.md",
+        content: buildTriggerContent(
+          {
+            schedule: "",
+            enabled: true,
+            triggerType: source,
+            event: "test.event.fired",
+            mode: "deterministic",
+            lastStatus: "success",
+          },
+          "Handle the trigger.",
+        ),
+      };
+      resourceListAllOwnersMock.mockResolvedValue([stored]);
+      resourceGetByPathMock.mockResolvedValue(stored);
+      isProductionServerlessRuntimeMock.mockReturnValue(true);
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+
+      if (source === "webhook") {
+        await dispatchAutomationWebhookTask({
+          kind: "automation-webhook",
+          automationId: stored.id,
+          owner: stored.owner,
+          path: stored.path,
+          eventId: "deterministic-event",
+          payload: {},
+        });
+      } else {
+        await busEventHandler("test.event.fired")(
+          {},
+          {
+            owner: stored.owner,
+            eventId: "deterministic-event",
+            emittedAt: new Date().toISOString(),
+          },
+        );
+        const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+          ([id]) => id === "automation-trigger-queue",
+        )?.[1];
+        expect(sweep).toBeTypeOf("function");
+        await sweep({ deadlineAt: Date.now() + 90_000 });
+        await waitForEvent("deterministic-event");
+      }
+
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
+      const written = resourcePutIfCurrentMock.mock.calls[0]?.[0];
+      expect(written).toMatchObject({ owner: stored.owner, path: stored.path });
+      expect(parseTriggerFrontmatter(written.content).meta).toMatchObject({
+        enabled: true,
+        mode: "deterministic",
+        lastStatus: "skipped",
+        lastError:
+          "mode: deterministic is not supported; remove the line or use agentic",
+        lastCheck: expect.any(String),
+      });
+      expect(createThreadMock).not.toHaveBeenCalled();
+      expect(startRunMock).not.toHaveBeenCalled();
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("records a resolved skip and reason without clearing the existing failure streak", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     resourceListAllOwnersMock.mockResolvedValue([

@@ -1396,8 +1396,10 @@ async function dispatchQueuedAutomationEvent(
     return "completed";
   }
   if (meta.mode !== "agentic") {
-    console.warn(
-      `[triggers] Deterministic mode not yet implemented for "${queued.triggerPath}" — skipping`,
+    await recordTriggerSkip(
+      resource,
+      "skipped",
+      `mode: ${meta.mode} is not supported; remove the line or use agentic`,
     );
     return "completed";
   }
@@ -1522,8 +1524,10 @@ export async function dispatchAutomationWebhookTask(
     return "completed";
   }
   if (meta.mode !== "agentic") {
-    console.warn(
-      `[triggers] Deterministic mode not yet implemented for "${task.path}" — skipping`,
+    await recordTriggerSkip(
+      resource,
+      "skipped",
+      `mode: ${meta.mode} is not supported; remove the line or use agentic`,
     );
     return "completed";
   }
